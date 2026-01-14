@@ -2,6 +2,7 @@
 Module điều khiển đèn giao thông dựa trên số lượng xe
 """
 import time
+import cv2
 from config import TRAFFIC_LIGHT_CONFIG, COLORS, UI_CONFIG
 
 
