@@ -134,10 +134,10 @@ class TrafficLightController:
         h, w = frame_shape[:2]
         
         # Vị trí hiển thị đèn cho mỗi hướng (góc trên phải)
-        light_size = 25
-        spacing = 35
-        start_x = w - 120
-        start_y = 20
+        light_size = 28
+        spacing = 38
+        start_x = w - 140
+        start_y = 35
         
         positions = {
             'north': (start_x, start_y),
@@ -153,32 +153,40 @@ class TrafficLightController:
             'red': COLORS['danger']
         }
         
-        # Vẽ background panel
-        panel_height = spacing * 4 + 20
-        panel_width = 100
+        # Vẽ background panel đẹp hơn
+        panel_height = spacing * 4 + 30
+        panel_width = 130
         overlay = frame.copy()
         cv2.rectangle(
             overlay,
-            (start_x - 10, start_y - 10),
+            (start_x - 15, start_y - 15),
             (start_x + panel_width, start_y + panel_height),
-            COLORS['background'],
+            (30, 30, 30),
             -1
         )
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
         cv2.rectangle(
             frame,
-            (start_x - 10, start_y - 10),
+            (start_x - 15, start_y - 15),
             (start_x + panel_width, start_y + panel_height),
-            COLORS['text'],
-            2
+            COLORS['primary'],
+            3
         )
         
-        # Vẽ title
+        # Vẽ title với background
+        title_bg_height = 25
+        cv2.rectangle(
+            frame,
+            (start_x - 15, start_y - 15),
+            (start_x + panel_width, start_y - 15 + title_bg_height),
+            COLORS['primary'],
+            -1
+        )
         cv2.putText(
             frame, "DEN GIAO THONG",
-            (start_x - 5, start_y - 15),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-            COLORS['text'], 1
+            (start_x - 10, start_y - 2),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+            (255, 255, 255), 2
         )
         
         for direction, state in light_states.items():
@@ -187,21 +195,36 @@ class TrafficLightController:
                 color = colors[state]
                 direction_name = self.direction_names.get(direction, direction[0].upper())
                 
-                # Vẽ vòng tròn đèn với hiệu ứng
+                # Vẽ vòng tròn đèn với hiệu ứng đẹp hơn
+                # Shadow effect
+                cv2.circle(frame, (x + 2, y + 2), light_size, (0, 0, 0), -1)
+                # Main circle
                 cv2.circle(frame, (x, y), light_size, color, -1)
-                cv2.circle(frame, (x, y), light_size, COLORS['text'], 2)
+                cv2.circle(frame, (x, y), light_size, (255, 255, 255), 2)
                 
                 # Vẽ viền sáng cho đèn đang bật
                 if state != 'red':
-                    cv2.circle(frame, (x, y), light_size + 3, color, 1)
+                    cv2.circle(frame, (x, y), light_size + 4, color, 2)
+                    # Glow effect
+                    for r in range(light_size + 6, light_size + 10, 2):
+                        overlay_circle = frame.copy()
+                        cv2.circle(overlay_circle, (x, y), r, color, 1)
+                        cv2.addWeighted(overlay_circle, 0.3, frame, 0.7, 0, frame)
                 
-                # Vẽ label
-                label = f"{direction_name}: {state[0].upper()}"
+                # Vẽ label với background
+                state_symbol = "G" if state == 'green' else "Y" if state == 'yellow' else "R"
+                label = f"{direction_name} [{state_symbol}]"
+                
+                (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+                cv2.rectangle(frame, 
+                            (x + light_size + 8, y - text_h // 2 - 2),
+                            (x + light_size + 8 + text_w + 4, y + text_h // 2 + 2),
+                            (40, 40, 40), -1)
                 cv2.putText(
                     frame, label,
-                    (x + light_size + 5, y + 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                    COLORS['text'], 1
+                    (x + light_size + 10, y + 4),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                    color, 2
                 )
         
         # Hiển thị thời gian đèn xanh còn lại
