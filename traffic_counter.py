@@ -120,7 +120,7 @@ class TrafficCounter:
     
     def draw_zones(self, frame):
         """
-        Vẽ các zone lên frame với style đẹp hơn
+        Vẽ các zone lên frame với style đẹp và dễ nhìn hơn
         
         Args:
             frame: Frame video
@@ -133,43 +133,59 @@ class TrafficCounter:
             color = zone_info['color']
             count = self.counts[direction]
             
-            # Vẽ polygon với độ trong suốt
+            # Vẽ polygon với độ trong suốt nhẹ hơn
             overlay = frame.copy()
             cv2.fillPoly(overlay, [points], color)
-            cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
+            cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
             
-            # Vẽ border
-            cv2.polylines(frame, [points], True, color, UI_CONFIG['line_thickness'])
+            # Vẽ border dày và rõ hơn
+            cv2.polylines(frame, [points], True, color, 3)
             
-            # Vẽ label và số lượng với background
+            # Vẽ label và số lượng với style đẹp hơn
             direction_name = self.direction_names.get(direction, direction.capitalize())
-            label = f"{direction_name}: {count}"
+            label = f"{direction_name}"
+            count_text = f"{count}"
             
             # Lấy điểm trung tâm của zone để đặt label
             center_x = int(sum(p[0] for p in points) / len(points))
             center_y = int(sum(p[1] for p in points) / len(points))
             
             # Tính kích thước text
-            (text_width, text_height), baseline = cv2.getTextSize(
-                label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
+            (label_w, label_h), _ = cv2.getTextSize(
+                label, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2
+            )
+            (count_w, count_h), _ = cv2.getTextSize(
+                count_text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3
             )
             
-            # Vẽ background cho text
-            padding = 5
-            cv2.rectangle(
-                frame,
-                (center_x - text_width//2 - padding, center_y - text_height - padding),
-                (center_x + text_width//2 + padding, center_y + baseline + padding),
-                color,
-                -1
-            )
+            # Vẽ background lớn hơn cho text
+            padding = 8
+            total_width = max(label_w, count_w) + padding * 2
+            total_height = label_h + count_h + padding * 3
             
-            # Vẽ text
+            # Background với viền
+            bg_x1 = center_x - total_width // 2
+            bg_y1 = center_y - total_height // 2
+            bg_x2 = center_x + total_width // 2
+            bg_y2 = center_y + total_height // 2
+            
+            cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+            cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), color, 3)
+            
+            # Vẽ label (tên hướng)
             cv2.putText(
                 frame, label,
-                (center_x - text_width//2, center_y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (center_x - label_w // 2, center_y - count_h // 2 - 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 COLORS['text'], 2
+            )
+            
+            # Vẽ số lượng (lớn và nổi bật)
+            cv2.putText(
+                frame, count_text,
+                (center_x - count_w // 2, center_y + label_h // 2 + 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                color, 3
             )
         
         return frame

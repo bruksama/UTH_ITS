@@ -6,11 +6,13 @@ import cv2
 import argparse
 import time
 import os
+import numpy as np
 from vehicle_detector import VehicleDetector
 from traffic_counter import TrafficCounter
 from traffic_light_controller import TrafficLightController
 from ui_dashboard import Dashboard
 from logger import TrafficLogger
+from zone_editor import ZoneEditor
 from config import COLORS, UI_CONFIG
 
 
@@ -101,6 +103,11 @@ class TrafficControlSystem:
         self.dashboard = Dashboard(frame_shape=(self.height, self.width))
         self.logger = TrafficLogger()
         
+        # Zone editor
+        self.zone_editor = ZoneEditor(self.counter.zones, (self.height, self.width))
+        self.edit_zones_mode = False
+        self.show_dashboard = True
+        
         # Setup video writer
         self.out = self._create_video_writer()
         
@@ -109,6 +116,18 @@ class TrafficControlSystem:
         self.fps = 0
         self.fps_start_time = time.time()
         self.fps_frame_count = 0
+        
+        # Cấu hình cửa sổ hiển thị
+        self.fixed_window_size = UI_CONFIG.get('fixed_window_size', True)
+        self.window_width = UI_CONFIG.get('window_width', 1280)
+        self.window_height = UI_CONFIG.get('window_height', 720)
+        
+        # Tạo cửa sổ với kích thước cố định nếu cần
+        if self.show and self.fixed_window_size:
+            cv2.namedWindow('Traffic Control System', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Traffic Control System', self.window_width, self.window_height)
+            # Set mouse callback cho zone editor
+            cv2.setMouseCallback('Traffic Control System', self._mouse_callback)
         
         print("\n✓ Khởi tạo hoàn tất!\n")
     
@@ -173,6 +192,61 @@ class TrafficControlSystem:
             self.fps_frame_count = 0
             self.fps_start_time = current_time
     
+    def _mouse_callback(self, event, x, y, flags, param):
+        """Callback cho mouse events"""
+        if self.edit_zones_mode:
+            # Điều chỉnh tọa độ nếu có dashboard
+            if self.show_dashboard:
+                x = x - UI_CONFIG['dashboard_width']
+                if x < 0:
+                    return
+            self.zone_editor.handle_mouse_event(event, x, y, flags, param)
+    
+    def _resize_for_display(self, frame):
+        """
+        Resize frame để hiển thị với kích thước cố định, giữ nguyên tỷ lệ
+        
+        Args:
+            frame: Frame gốc
+            
+        Returns:
+            Frame đã được resize
+        """
+        if not self.fixed_window_size:
+            return frame
+        
+        h, w = frame.shape[:2]
+        target_w = self.window_width
+        target_h = self.window_height
+        
+        # Tính tỷ lệ để giữ nguyên aspect ratio
+        scale_w = target_w / w
+        scale_h = target_h / h
+        scale = min(scale_w, scale_h)  # Chọn scale nhỏ hơn để fit vào cửa sổ
+        
+        # Tính kích thước mới
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        
+        # Resize frame
+        resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        
+        # Tạo frame với kích thước cố định và padding nếu cần
+        if new_w != target_w or new_h != target_h:
+            # Tạo frame đen với kích thước cố định
+            display_frame = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+            
+            # Tính vị trí để căn giữa
+            y_offset = (target_h - new_h) // 2
+            x_offset = (target_w - new_w) // 2
+            
+            # Đặt frame đã resize vào giữa
+            display_frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+            
+            return display_frame
+        
+        return resized
+    
     def draw_info_overlay(self, frame):
         """Vẽ thông tin overlay lên frame"""
         # Vẽ header bar
@@ -213,6 +287,10 @@ class TrafficControlSystem:
         # Nhận diện xe
         detections = self.detector.detect(frame)
         
+        # Cập nhật zones từ editor nếu đang chỉnh sửa
+        if self.edit_zones_mode:
+            self.counter.zones = self.zone_editor.get_zones()
+        
         # Đếm xe theo hướng
         vehicle_counts = self.counter.count_vehicles(detections)
         
@@ -222,23 +300,35 @@ class TrafficControlSystem:
         # Vẽ detections
         frame = self.detector.draw_detections(frame, detections)
         
-        # Vẽ zones và số lượng xe
-        frame = self.counter.draw_zones(frame)
+        # Vẽ zones - dùng editor nếu đang chỉnh sửa
+        if self.edit_zones_mode:
+            frame = self.zone_editor.draw_zones_editable(frame)
+        else:
+            frame = self.counter.draw_zones(frame)
         
         # Vẽ trạng thái đèn
         frame = self.controller.draw_lights(frame, light_states, (self.height, self.width))
         
-        # Vẽ dashboard
+        # Lấy thống kê (cần cho logging)
         vehicle_stats = self.detector.get_statistics()
         traffic_stats = self.counter.get_statistics()
         light_stats = self.controller.get_statistics()
         
-        frame = self.dashboard.draw_dashboard(
-            frame, vehicle_stats, traffic_stats, light_stats, self.fps
-        )
+        # Vẽ dashboard nếu bật
+        if self.show_dashboard:
+            frame = self.dashboard.draw_dashboard(
+                frame, vehicle_stats, traffic_stats, light_stats, self.fps
+            )
         
         # Vẽ info overlay
         frame = self.draw_info_overlay(frame)
+        
+        # Hiển thị thông báo chế độ chỉnh sửa
+        if self.edit_zones_mode:
+            cv2.putText(frame, "CHE DO CHINH SUA ZONES - Nhan [E] de thoat",
+                       (10, self.height - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                       COLORS['warning'], 2)
         
         # Logging
         self.logger.log(vehicle_counts, light_stats, self.fps)
@@ -252,6 +342,9 @@ class TrafficControlSystem:
         print("  [Q] - Thoát")
         print("  [SPACE] - Tạm dừng/Tiếp tục")
         print("  [S] - Lưu screenshot")
+        print("  [D] - Ẩn/Hiện Dashboard")
+        print("  [E] - Chế độ chỉnh sửa Zones (kéo thả để di chuyển)")
+        print("  [R] - Lưu zones hiện tại")
         print("-" * 60)
         
         paused = False
@@ -296,7 +389,9 @@ class TrafficControlSystem:
                 
                 # Hiển thị frame
                 if self.show:
-                    cv2.imshow('Traffic Control System', frame)
+                    # Resize frame về kích thước cố định nếu cần
+                    display_frame = self._resize_for_display(frame)
+                    cv2.imshow('Traffic Control System', display_frame)
                     
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord('q'):
@@ -309,6 +404,25 @@ class TrafficControlSystem:
                         screenshot_path = f'screenshot_{int(time.time())}.jpg'
                         cv2.imwrite(screenshot_path, frame)
                         print(f"  Đã lưu screenshot: {screenshot_path}")
+                    elif key == ord('d'):
+                        self.show_dashboard = not self.show_dashboard
+                        print(f"  Dashboard: {'Hiện' if self.show_dashboard else 'Ẩn'}")
+                    elif key == ord('e'):
+                        self.edit_zones_mode = not self.edit_zones_mode
+                        if self.edit_zones_mode:
+                            # Cập nhật zones vào editor
+                            self.zone_editor.zones = self.counter.zones.copy()
+                            print("  Chế độ chỉnh sửa zones: BẬT")
+                            print("    - Click và kéo điểm để di chuyển")
+                            print("    - Click vào zone để di chuyển toàn bộ")
+                            print("    - Nhấn [E] để tắt chế độ chỉnh sửa")
+                        else:
+                            # Cập nhật zones vào counter
+                            self.counter.zones = self.zone_editor.get_zones()
+                            print("  Chế độ chỉnh sửa zones: TẮT")
+                    elif key == ord('r') and self.edit_zones_mode:
+                        self.zone_editor.save_zones()
+                        print("  Đã lưu zones!")
         
         except KeyboardInterrupt:
             print("\n\nĐã dừng xử lý (Ctrl+C)")

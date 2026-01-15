@@ -38,6 +38,10 @@ UI_CONFIG = {
     'dashboard_width': 300,
     'show_fps': True,
     'show_statistics': True,
+    # Cấu hình cửa sổ hiển thị
+    'fixed_window_size': True,  # True = kích thước cố định, False = theo video
+    'window_width': 1280,       # Chiều rộng cửa sổ (pixels)
+    'window_height': 720,       # Chiều cao cửa sổ (pixels)
 }
 
 # Cấu hình zones (có thể tùy chỉnh theo video)
