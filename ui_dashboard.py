@@ -42,10 +42,6 @@ class Dashboard:
         )
         cv2.addWeighted(overlay, 0.9, frame, 0.1, 0, frame)
         
-        # Vẽ border đơn giản
-        cv2.line(frame, (self.dashboard_width, 0), (self.dashboard_width, self.height), 
-                (100, 100, 100), 1)
-        
         y = 20
         
         # FPS đơn giản
