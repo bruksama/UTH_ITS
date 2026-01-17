@@ -1,13 +1,13 @@
 === TRAFFIC STATISTICS SUMMARY ===
 
-Total Records: 30
-Time Range: 2026-01-17 12:57:28 - 2026-01-17 13:01:15
+Total Records: 45
+Time Range: 2026-01-17 12:57:28 - 2026-01-17 13:31:32
 
 Vehicle Count by Direction:
   North: 61
-  South: 343
-  East: 98
-  West: 79
+  South: 467
+  East: 160
+  West: 122
 
-Total Vehicles: 581
-Average per Record: 19.37
+Total Vehicles: 810
+Average per Record: 18.00
