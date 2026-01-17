@@ -47,9 +47,15 @@ UI_CONFIG = {
 # Cấu hình zones (có thể tùy chỉnh theo video)
 ZONES_CONFIG = None  # None = tự động tạo zones mặc định
 
+# Cấu hình output
+OUTPUT_CONFIG = {
+    'output_folder': 'output',  # Folder chứa tất cả file output
+    'create_timestamp_folder': False,  # True = tạo folder với timestamp
+}
+
 # Cấu hình logging
 LOGGING_CONFIG = {
     'enabled': True,
-    'log_file': 'traffic_logs.csv',
+    'log_file': 'traffic_logs.csv',  # Sẽ được đặt trong output folder
     'log_interval': 1,  # Log mỗi N giây
 }

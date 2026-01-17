@@ -32,10 +32,10 @@ class TrafficLightController:
         # Thống kê
         self.switch_count = 0
         self.direction_names = {
-            'north': 'Bắc',
-            'south': 'Nam',
-            'east': 'Đông',
-            'west': 'Tây'
+            'north': 'North',
+            'south': 'South',
+            'east': 'East',
+            'west': 'West'
         }
         
     def get_light_state(self, vehicle_counts):
@@ -241,13 +241,35 @@ class TrafficLightController:
         
         return frame
     
-    def get_statistics(self):
+    def get_statistics(self, vehicle_counts=None):
         """Lấy thống kê điều khiển đèn"""
         elapsed = time.time() - self.green_start_time
+        remaining = max(0, self.max_green_time - elapsed) if not self.is_yellow else 0
+        
+        # Tính phần trăm thời gian đã qua
+        progress_percent = (elapsed / self.max_green_time) * 100 if not self.is_yellow else 100
+        
+        # Xác định lý do sắp chuyển đèn
+        switch_reason = None
+        if vehicle_counts and not self.is_yellow:
+            current_count = vehicle_counts.get(self.current_green, 0)
+            max_other = max([v for k, v in vehicle_counts.items() if k != self.current_green], default=0)
+            
+            if elapsed >= self.max_green_time * 0.9:
+                switch_reason = f"Gần hết thời gian tối đa ({self.max_green_time}s)"
+            elif current_count < self.threshold:
+                switch_reason = f"Ít xe (<{self.threshold} xe)"
+            elif max_other > current_count + self.threshold:
+                switch_reason = f"Hướng khác đông hơn (+{max_other - current_count} xe)"
+        
         return {
             'current_green': self.current_green,
             'is_yellow': self.is_yellow,
             'elapsed_time': elapsed,
-            'remaining_time': max(0, self.max_green_time - elapsed) if not self.is_yellow else 0,
-            'switch_count': self.switch_count
+            'remaining_time': remaining,
+            'progress_percent': progress_percent,
+            'switch_count': self.switch_count,
+            'switch_reason': switch_reason,
+            'min_time': self.min_green_time,
+            'max_time': self.max_green_time
         }
