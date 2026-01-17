@@ -4,7 +4,7 @@ Module logging và export statistics
 import csv
 import os
 from datetime import datetime
-from config import LOGGING_CONFIG
+from config import LOGGING_CONFIG, OUTPUT_CONFIG
 
 
 class TrafficLogger:
@@ -15,7 +15,15 @@ class TrafficLogger:
         Args:
             log_file: Đường dẫn file log
         """
-        self.log_file = log_file or LOGGING_CONFIG['log_file']
+        # Đặt log file trong output folder nếu chưa có đường dẫn đầy đủ
+        if log_file:
+            self.log_file = log_file
+        else:
+            log_filename = LOGGING_CONFIG['log_file']
+            output_folder = OUTPUT_CONFIG.get('output_folder', 'output')
+            os.makedirs(output_folder, exist_ok=True)
+            self.log_file = os.path.join(output_folder, log_filename)
+        
         self.enabled = LOGGING_CONFIG['enabled']
         self.log_interval = LOGGING_CONFIG['log_interval']
         self.last_log_time = 0

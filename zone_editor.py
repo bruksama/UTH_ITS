@@ -3,6 +3,7 @@ Module cho phép vẽ và chỉnh sửa zones trực tiếp trên video
 """
 import cv2
 import numpy as np
+import os
 from config import COLORS
 
 
@@ -33,10 +34,10 @@ class ZoneEditor:
         
         # Tên hướng
         self.direction_names = {
-            'north': 'Bắc',
-            'south': 'Nam',
-            'east': 'Đông',
-            'west': 'Tây'
+            'north': 'North',
+            'south': 'South',
+            'east': 'East',
+            'west': 'West'
         }
     
     def draw_zones_editable(self, frame):
@@ -207,17 +208,30 @@ class ZoneEditor:
         """Lấy zones hiện tại"""
         return self.zones.copy()
     
-    def save_zones(self, filepath='zones_config.json'):
+    def save_zones(self, filepath=None):
         """Lưu zones vào file"""
         import json
+        from config import OUTPUT_CONFIG
+        
+        if filepath is None:
+            output_folder = OUTPUT_CONFIG.get('output_folder', 'output')
+            os.makedirs(output_folder, exist_ok=True)
+            filepath = os.path.join(output_folder, 'zones_config.json')
+        
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.zones, f, indent=2, ensure_ascii=False)
         print(f"Đã lưu zones vào: {filepath}")
     
-    def load_zones(self, filepath='zones_config.json'):
+    def load_zones(self, filepath=None):
         """Tải zones từ file"""
         import json
         import os
+        from config import OUTPUT_CONFIG
+        
+        if filepath is None:
+            output_folder = OUTPUT_CONFIG.get('output_folder', 'output')
+            filepath = os.path.join(output_folder, 'zones_config.json')
+        
         if os.path.exists(filepath):
             with open(filepath, 'r', encoding='utf-8') as f:
                 self.zones = json.load(f)

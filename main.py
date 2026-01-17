@@ -13,7 +13,7 @@ from traffic_light_controller import TrafficLightController
 from ui_dashboard import Dashboard
 from logger import TrafficLogger
 from zone_editor import ZoneEditor
-from config import COLORS, UI_CONFIG
+from config import COLORS, UI_CONFIG, OUTPUT_CONFIG
 
 
 class TrafficControlSystem:
@@ -29,8 +29,26 @@ class TrafficControlSystem:
         """
         self.video_path = video_path
         self.model_path = model_path
-        self.output_path = output_path or 'output_video.mp4'
         self.show = show
+        
+        # Tạo output folder
+        self.output_folder = OUTPUT_CONFIG.get('output_folder', 'output')
+        if OUTPUT_CONFIG.get('create_timestamp_folder', False):
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.output_folder = os.path.join(self.output_folder, timestamp)
+        
+        os.makedirs(self.output_folder, exist_ok=True)
+        
+        # Đặt output path trong folder
+        if output_path:
+            if not os.path.isabs(output_path) and os.path.dirname(output_path) == '':
+                # Nếu chỉ có tên file, đặt vào output folder
+                self.output_path = os.path.join(self.output_folder, output_path)
+            else:
+                self.output_path = output_path
+        else:
+            self.output_path = os.path.join(self.output_folder, 'output_video.mp4')
         
         # Khởi tạo các component
         print("=" * 60)
@@ -101,7 +119,10 @@ class TrafficControlSystem:
         
         print("  [5/5] Đang khởi tạo Dashboard và Logger...")
         self.dashboard = Dashboard(frame_shape=(self.height, self.width))
-        self.logger = TrafficLogger()
+        
+        # Logger với output folder
+        log_file = os.path.join(self.output_folder, 'traffic_logs.csv')
+        self.logger = TrafficLogger(log_file=log_file)
         
         # Zone editor
         self.zone_editor = ZoneEditor(self.counter.zones, (self.height, self.width))
@@ -128,6 +149,7 @@ class TrafficControlSystem:
             cv2.resizeWindow('Traffic Control System', self.window_width, self.window_height)
             # Set mouse callback cho zone editor
             cv2.setMouseCallback('Traffic Control System', self._mouse_callback)
+            self._update_frame_on_edit = False
         
         print("\n✓ Khởi tạo hoàn tất!\n")
     
@@ -282,43 +304,57 @@ class TrafficControlSystem:
         
         return frame
     
-    def process_frame(self, frame):
-        """Xử lý một frame"""
-        # Nhận diện xe
-        detections = self.detector.detect(frame)
+    def process_frame(self, frame, skip_detection=False):
+        """
+        Xử lý một frame
         
-        # Cập nhật zones từ editor nếu đang chỉnh sửa
-        if self.edit_zones_mode:
-            self.counter.zones = self.zone_editor.get_zones()
-        
-        # Đếm xe theo hướng
-        vehicle_counts = self.counter.count_vehicles(detections)
-        
-        # Tính toán trạng thái đèn
-        light_states = self.controller.get_light_state(vehicle_counts)
-        
-        # Vẽ detections
-        frame = self.detector.draw_detections(frame, detections)
+        Args:
+            frame: Frame video
+            skip_detection: Nếu True, bỏ qua detection và counting (chỉ vẽ zones)
+        """
+        if not skip_detection:
+            # Nhận diện xe
+            detections = self.detector.detect(frame)
+            
+            # Cập nhật zones từ editor nếu đang chỉnh sửa
+            if self.edit_zones_mode:
+                self.counter.zones = self.zone_editor.get_zones()
+            
+            # Đếm xe theo hướng
+            vehicle_counts = self.counter.count_vehicles(detections)
+            
+            # Tính toán trạng thái đèn
+            light_states = self.controller.get_light_state(vehicle_counts)
+            
+            # Vẽ detections
+            frame = self.detector.draw_detections(frame, detections)
+            
+            # Vẽ trạng thái đèn
+            frame = self.controller.draw_lights(frame, light_states, (self.height, self.width))
+            
+            # Lấy thống kê (cần cho logging)
+            vehicle_stats = self.detector.get_statistics()
+            traffic_stats = self.counter.get_statistics()
+            light_stats = self.controller.get_statistics(vehicle_counts)
+            
+            # Vẽ dashboard nếu bật
+            if self.show_dashboard:
+                frame = self.dashboard.draw_dashboard(
+                    frame, vehicle_stats, traffic_stats, light_stats, self.fps
+                )
+            
+            # Logging
+            self.logger.log(vehicle_counts, light_stats, self.fps)
+        else:
+            # Khi skip_detection, chỉ cập nhật zones và vẽ
+            if self.edit_zones_mode:
+                self.counter.zones = self.zone_editor.get_zones()
         
         # Vẽ zones - dùng editor nếu đang chỉnh sửa
         if self.edit_zones_mode:
             frame = self.zone_editor.draw_zones_editable(frame)
         else:
             frame = self.counter.draw_zones(frame)
-        
-        # Vẽ trạng thái đèn
-        frame = self.controller.draw_lights(frame, light_states, (self.height, self.width))
-        
-        # Lấy thống kê (cần cho logging)
-        vehicle_stats = self.detector.get_statistics()
-        traffic_stats = self.counter.get_statistics()
-        light_stats = self.controller.get_statistics()
-        
-        # Vẽ dashboard nếu bật
-        if self.show_dashboard:
-            frame = self.dashboard.draw_dashboard(
-                frame, vehicle_stats, traffic_stats, light_stats, self.fps
-            )
         
         # Vẽ info overlay
         frame = self.draw_info_overlay(frame)
@@ -329,9 +365,6 @@ class TrafficControlSystem:
                        (10, self.height - 20),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                        COLORS['warning'], 2)
-        
-        # Logging
-        self.logger.log(vehicle_counts, light_stats, self.fps)
         
         return frame
     
@@ -348,6 +381,7 @@ class TrafficControlSystem:
         print("-" * 60)
         
         paused = False
+        current_frame = None  # Lưu frame hiện tại khi pause
         
         try:
             while True:
@@ -370,6 +404,9 @@ class TrafficControlSystem:
                     
                     self.frame_count += 1
                     
+                    # Lưu frame gốc (chưa xử lý) để dùng khi pause
+                    current_frame = frame.copy()
+                    
                     # Xử lý frame
                     frame = self.process_frame(frame)
                     
@@ -386,14 +423,30 @@ class TrafficControlSystem:
                             print(f"Đã xử lý: {self.frame_count}/{self.total_frames} frames ({progress:.1f}%) | FPS: {self.fps:.1f}")
                         else:
                             print(f"Đã xử lý: {self.frame_count} frames | FPS: {self.fps:.1f}")
+                else:
+                    # Khi paused, chỉ vẽ lại zones (không chạy detection và counting)
+                    if current_frame is not None:
+                        frame = self.process_frame(current_frame.copy(), skip_detection=True)
                 
-                # Hiển thị frame
-                if self.show:
+                # Hiển thị frame (luôn hiển thị khi paused để có thể chỉnh sửa)
+                if self.show or paused:
                     # Resize frame về kích thước cố định nếu cần
                     display_frame = self._resize_for_display(frame)
                     cv2.imshow('Traffic Control System', display_frame)
                     
-                    key = cv2.waitKey(1) & 0xFF
+                    # Khi paused, dùng waitKey với timeout ngắn để có thể chỉnh sửa zones
+                    # và cập nhật frame liên tục (chỉ vẽ zones, không chạy detection)
+                    if paused:
+                        # Xử lý lại frame để cập nhật zones (skip detection)
+                        if current_frame is not None:
+                            frame = self.process_frame(current_frame.copy(), skip_detection=True)
+                            display_frame = self._resize_for_display(frame)
+                            cv2.imshow('Traffic Control System', display_frame)
+                        wait_time = 10  # 10ms để cập nhật frame liên tục
+                    else:
+                        wait_time = 1
+                    
+                    key = cv2.waitKey(wait_time) & 0xFF
                     if key == ord('q'):
                         print("\nĐã dừng bởi người dùng")
                         break
@@ -401,7 +454,10 @@ class TrafficControlSystem:
                         paused = not paused
                         print(f"  {'Tạm dừng' if paused else 'Tiếp tục'}")
                     elif key == ord('s'):
-                        screenshot_path = f'screenshot_{int(time.time())}.jpg'
+                        screenshot_path = os.path.join(
+                            self.output_folder, 
+                            f'screenshot_{int(time.time())}.jpg'
+                        )
                         cv2.imwrite(screenshot_path, frame)
                         print(f"  Đã lưu screenshot: {screenshot_path}")
                     elif key == ord('d'):
@@ -421,8 +477,9 @@ class TrafficControlSystem:
                             self.counter.zones = self.zone_editor.get_zones()
                             print("  Chế độ chỉnh sửa zones: TẮT")
                     elif key == ord('r') and self.edit_zones_mode:
-                        self.zone_editor.save_zones()
-                        print("  Đã lưu zones!")
+                        zones_file = os.path.join(self.output_folder, 'zones_config.json')
+                        self.zone_editor.save_zones(zones_file)
+                        print(f"  Đã lưu zones vào: {zones_file}")
         
         except KeyboardInterrupt:
             print("\n\nĐã dừng xử lý (Ctrl+C)")
@@ -440,13 +497,13 @@ class TrafficControlSystem:
         cv2.destroyAllWindows()
         
         # Export summary
-        summary_file = 'traffic_summary.txt'
+        summary_file = os.path.join(self.output_folder, 'traffic_summary.txt')
         self.logger.export_summary(summary_file)
         
         # Thống kê cuối cùng
         vehicle_stats = self.detector.get_statistics()
         traffic_stats = self.counter.get_statistics()
-        light_stats = self.controller.get_statistics()
+        light_stats = self.controller.get_statistics(vehicle_counts={})
         
         print("\n" + "=" * 60)
         print("THỐNG KÊ CUỐI CÙNG")
@@ -457,8 +514,8 @@ class TrafficControlSystem:
         print(f"\nTổng số xe đếm được theo hướng:")
         for direction, count in traffic_stats['total'].items():
             direction_name = {
-                'north': 'Bắc', 'south': 'Nam',
-                'east': 'Đông', 'west': 'Tây'
+                'north': 'North', 'south': 'South',
+                'east': 'East', 'west': 'West'
             }.get(direction, direction)
             print(f"  {direction_name}: {count}")
         print(f"\nSố lần chuyển đèn: {light_stats['switch_count']}")

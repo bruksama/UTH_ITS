@@ -27,10 +27,10 @@ class TrafficCounter:
         self.counts = {direction: 0 for direction in zones_config.keys()}
         self.total_counted = {direction: 0 for direction in zones_config.keys()}
         self.direction_names = {
-            'north': 'Bắc',
-            'south': 'Nam',
-            'east': 'Đông',
-            'west': 'Tây'
+            'north': 'North',
+            'south': 'South',
+            'east': 'East',
+            'west': 'West'
         }
         
     def _create_default_zones(self):
