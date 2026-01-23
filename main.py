@@ -288,6 +288,10 @@ class TrafficControlSystem:
     
     def draw_info_overlay(self, frame):
         """Vẽ thông tin overlay lên frame"""
+        # Chỉ vẽ nếu dashboard đang hiển thị
+        if not self.show_dashboard:
+            return frame
+        
         # Vẽ header bar
         overlay = frame.copy()
         cv2.rectangle(
