@@ -13,7 +13,7 @@ from traffic_light_controller import TrafficLightController
 from ui_dashboard import Dashboard
 from logger import TrafficLogger
 from zone_editor import ZoneEditor
-from config import COLORS, UI_CONFIG, OUTPUT_CONFIG
+from config import COLORS, UI_CONFIG, OUTPUT_CONFIG, DETECTION_CONFIG
 
 
 class TrafficControlSystem:
@@ -31,14 +31,31 @@ class TrafficControlSystem:
         self.model_path = model_path
         self.show = show
         
-        # Tạo output folder
-        self.output_folder = OUTPUT_CONFIG.get('output_folder', 'output')
-        if OUTPUT_CONFIG.get('create_timestamp_folder', False):
-            from datetime import datetime
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            self.output_folder = os.path.join(self.output_folder, timestamp)
+        # Tạo output folder với cấu trúc session
+        from datetime import datetime
+        self.session_timestamp = datetime.now()
+        
+        base_folder = OUTPUT_CONFIG.get('base_folder', 'output')
+        
+        if OUTPUT_CONFIG.get('create_session', True):
+            # Tạo session folder với timestamp
+            sessions_folder = OUTPUT_CONFIG.get('sessions_folder', 'sessions')
+            session_name = self.session_timestamp.strftime(
+                OUTPUT_CONFIG.get('session_name_format', '%Y%m%d_%H%M%S')
+            )
+            self.output_folder = os.path.join(base_folder, sessions_folder, session_name)
+        else:
+            # Fallback: đặt trực tiếp vào base folder
+            self.output_folder = base_folder
         
         os.makedirs(self.output_folder, exist_ok=True)
+        
+        # Tạo folder cho screenshots nếu cần
+        if OUTPUT_CONFIG.get('create_screenshots_folder', True):
+            self.screenshots_folder = os.path.join(self.output_folder, 'screenshots')
+            os.makedirs(self.screenshots_folder, exist_ok=True)
+        else:
+            self.screenshots_folder = self.output_folder
         
         # Đặt output path trong folder
         if output_path:
@@ -455,8 +472,8 @@ class TrafficControlSystem:
                         print(f"  {'Tạm dừng' if paused else 'Tiếp tục'}")
                     elif key == ord('s'):
                         screenshot_path = os.path.join(
-                            self.output_folder, 
-                            f'screenshot_{int(time.time())}.jpg'
+                            self.screenshots_folder, 
+                            f'screenshot_{self.frame_count:06d}.jpg'
                         )
                         cv2.imwrite(screenshot_path, frame)
                         print(f"  Đã lưu screenshot: {screenshot_path}")
@@ -500,6 +517,10 @@ class TrafficControlSystem:
         summary_file = os.path.join(self.output_folder, 'traffic_summary.txt')
         self.logger.export_summary(summary_file)
         
+        # Tạo metadata cho session nếu cần
+        if OUTPUT_CONFIG.get('create_metadata', True):
+            self._create_session_metadata()
+        
         # Thống kê cuối cùng
         vehicle_stats = self.detector.get_statistics()
         traffic_stats = self.counter.get_statistics()
@@ -519,10 +540,64 @@ class TrafficControlSystem:
             }.get(direction, direction)
             print(f"  {direction_name}: {count}")
         print(f"\nSố lần chuyển đèn: {light_stats['switch_count']}")
-        print(f"\nVideo output: {self.output_path}")
+        print(f"\nSession folder: {self.output_folder}")
+        print(f"Video output: {self.output_path}")
         print(f"Log file: {self.logger.log_file}")
         print(f"Summary file: {summary_file}")
         print("=" * 60)
+    
+    def _create_session_metadata(self):
+        """Tạo file metadata.json cho session"""
+        import json
+        
+        # Lấy thống kê cuối cùng
+        vehicle_stats = self.detector.get_statistics()
+        traffic_stats = self.counter.get_statistics()
+        light_stats = self.controller.get_statistics(vehicle_counts={})
+        
+        # Lấy thông tin video
+        video_name = os.path.basename(self.video_path) if isinstance(self.video_path, str) else f"webcam_{self.video_path}"
+        
+        # Tạo metadata
+        metadata = {
+            'session_info': {
+                'timestamp': self.session_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                'session_id': os.path.basename(self.output_folder),
+            },
+            'video_info': {
+                'source': video_name,
+                'width': self.width,
+                'height': self.height,
+                'fps': self.fps_video,
+                'total_frames': self.total_frames,
+                'processed_frames': self.frame_count,
+            },
+            'detection_config': {
+                'model': self.model_path if self.model_path else 'yolov8n.pt',
+                'confidence_threshold': DETECTION_CONFIG.get('confidence_threshold', 0.25),
+            },
+            'statistics': {
+                'total_vehicles_detected': vehicle_stats['total'],
+                'average_vehicles_per_frame': vehicle_stats['average_per_frame'],
+                'vehicles_by_direction': traffic_stats['total'],
+                'traffic_light_switches': light_stats['switch_count'],
+            },
+            'output_files': {
+                'video': os.path.basename(self.output_path),
+                'logs': 'traffic_logs.csv',
+                'summary': 'traffic_summary.txt',
+                'zones_config': 'zones_config.json' if os.path.exists(
+                    os.path.join(self.output_folder, 'zones_config.json')
+                ) else None,
+            }
+        }
+        
+        # Lưu metadata
+        metadata_file = os.path.join(self.output_folder, 'metadata.json')
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        
+        print(f"Metadata file: {metadata_file}")
 
 
 def main():

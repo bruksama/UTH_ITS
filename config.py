@@ -49,8 +49,12 @@ ZONES_CONFIG = None  # None = tự động tạo zones mặc định
 
 # Cấu hình output
 OUTPUT_CONFIG = {
-    'output_folder': 'output',  # Folder chứa tất cả file output
-    'create_timestamp_folder': False,  # True = tạo folder với timestamp
+    'base_folder': 'output',              # Folder gốc chứa tất cả output
+    'sessions_folder': 'sessions',        # Folder chứa các session
+    'create_session': True,               # True = tạo session riêng cho mỗi lần chạy
+    'session_name_format': '%Y%m%d_%H%M%S',  # Format timestamp cho session
+    'create_screenshots_folder': True,    # True = tạo folder screenshots riêng
+    'create_metadata': True,              # True = tạo file metadata.json cho session
 }
 
 # Cấu hình logging
