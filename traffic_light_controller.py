@@ -1,5 +1,6 @@
 """
 Module điều khiển đèn giao thông dựa trên số lượng xe
+Phiên bản cập nhật: Hỗ trợ cặp hướng đối diện (North-South và East-West)
 """
 import time
 import cv2
@@ -21,13 +22,19 @@ class TrafficLightController:
         self.threshold = threshold or TRAFFIC_LIGHT_CONFIG['threshold']
         self.yellow_time = TRAFFIC_LIGHT_CONFIG['yellow_time']
         
-        # Trạng thái đèn: 'north', 'south', 'east', 'west'
-        self.current_green = 'north'
+        # Trạng thái đèn: 'north_south' hoặc 'east_west' (cặp hướng đối diện)
+        self.current_green_pair = 'north_south'  # Bắt đầu với cặp Bắc-Nam
         
         # Thời gian bắt đầu đèn xanh hiện tại
         self.green_start_time = time.time()
         self.is_yellow = False
         self.yellow_start_time = None
+        
+        # Các cặp hướng đối diện
+        self.direction_pairs = {
+            'north_south': ['north', 'south'],
+            'east_west': ['east', 'west']
+        }
         
         # Thống kê
         self.switch_count = 0
@@ -59,21 +66,26 @@ class TrafficLightController:
                 self.is_yellow = False
         else:
             # Kiểm tra điều kiện chuyển đèn
-            current_count = vehicle_counts.get(self.current_green, 0)
+            current_pair = self.direction_pairs[self.current_green_pair]
+            current_count = sum(vehicle_counts.get(dir, 0) for dir in current_pair)
             
-            # Tìm hướng có nhiều xe nhất
-            max_direction = max(vehicle_counts.items(), key=lambda x: x[1])
-            max_count = max_direction[1]
-            max_dir = max_direction[0]
+            # Tìm cặp hướng có nhiều xe nhất
+            pair_counts = {}
+            for pair_name, directions in self.direction_pairs.items():
+                pair_counts[pair_name] = sum(vehicle_counts.get(dir, 0) for dir in directions)
+            
+            max_pair = max(pair_counts.items(), key=lambda x: x[1])
+            max_count = max_pair[1]
+            max_pair_name = max_pair[0]
             
             # Điều kiện chuyển đèn:
             # 1. Đã hết thời gian xanh tối thiểu VÀ
-            # 2. (Hướng hiện tại ít xe hơn threshold HOẶC có hướng khác nhiều xe hơn đáng kể)
+            # 2. (Cặp hiện tại ít xe hơn threshold HOẶC có cặp khác nhiều xe hơn đáng kể)
             should_switch = (
                 elapsed_green_time >= self.min_green_time and
                 (
-                    current_count < self.threshold or
-                    (max_dir != self.current_green and max_count > current_count + self.threshold)
+                    current_count < self.threshold * 2 or  # threshold cho cặp hướng
+                    (max_pair_name != self.current_green_pair and max_count > current_count + self.threshold * 2)
                 )
             )
             
@@ -85,10 +97,11 @@ class TrafficLightController:
                 self.is_yellow = True
                 self.yellow_start_time = current_time
         
-        # Tạo dict trạng thái đèn
+        # Tạo dict trạng thái đèn cho cả 4 hướng
         light_states = {}
-        for direction in vehicle_counts.keys():
-            if direction == self.current_green:
+        for direction in ['north', 'south', 'east', 'west']:
+            # Kiểm tra xem direction có trong cặp hiện tại không
+            if direction in self.direction_pairs[self.current_green_pair]:
                 if self.is_yellow:
                     light_states[direction] = 'yellow'
                 else:
@@ -102,20 +115,31 @@ class TrafficLightController:
         """
         Chuyển sang đèn xanh tiếp theo dựa trên số lượng xe
         """
-        # Tìm hướng có nhiều xe nhất (ngoại trừ hướng hiện tại)
-        other_directions = {k: v for k, v in vehicle_counts.items() 
-                           if k != self.current_green}
+        # Tìm cặp hướng có nhiều xe nhất (ngoại trừ cặp hiện tại)
+        other_pairs = {k: v for k, v in self.direction_pairs.items() 
+                       if k != self.current_green_pair}
         
-        if other_directions:
-            # Chọn hướng có nhiều xe nhất
-            next_green = max(other_directions.items(), key=lambda x: x[1])[0]
+        if vehicle_counts and other_pairs:
+            # Tính số xe cho mỗi cặp
+            pair_counts = {}
+            for pair_name, directions in other_pairs.items():
+                pair_counts[pair_name] = sum(vehicle_counts.get(dir, 0) for dir in directions)
+            
+            if pair_counts:
+                # Chọn cặp có nhiều xe nhất
+                next_pair = max(pair_counts.items(), key=lambda x: x[1])[0]
+            else:
+                # Nếu không có xe, chuyển theo thứ tự vòng tròn
+                pairs = list(self.direction_pairs.keys())
+                current_idx = pairs.index(self.current_green_pair)
+                next_pair = pairs[(current_idx + 1) % len(pairs)]
         else:
-            # Nếu không có xe, chuyển theo thứ tự vòng tròn
-            directions = list(vehicle_counts.keys())
-            current_idx = directions.index(self.current_green)
-            next_green = directions[(current_idx + 1) % len(directions)]
+            # Nếu không có vehicle_counts, chuyển theo thứ tự vòng tròn
+            pairs = list(self.direction_pairs.keys())
+            current_idx = pairs.index(self.current_green_pair)
+            next_pair = pairs[(current_idx + 1) % len(pairs)]
         
-        self.current_green = next_green
+        self.current_green_pair = next_pair
         self.green_start_time = time.time()
         self.switch_count += 1
     
@@ -189,6 +213,27 @@ class TrafficLightController:
             (255, 255, 255), 2
         )
         
+        # Vẽ đường nối giữa các cặp hướng đối diện
+        north_pos = positions['north']
+        south_pos = positions['south']
+        east_pos = positions['east']
+        west_pos = positions['west']
+        
+        # Vẽ đường nét đứt để kết nối các cặp
+        if 'north' in light_states and 'south' in light_states:
+            if light_states['north'] == light_states['south']:
+                # North-South cùng màu
+                color = colors[light_states['north']]
+                cv2.line(frame, (north_pos[0] - 35, north_pos[1]), 
+                        (south_pos[0] - 35, south_pos[1]), color, 2)
+        
+        if 'east' in light_states and 'west' in light_states:
+            if light_states['east'] == light_states['west']:
+                # East-West cùng màu
+                color = colors[light_states['east']]
+                cv2.line(frame, (east_pos[0] - 35, east_pos[1]), 
+                        (west_pos[0] - 35, west_pos[1]), color, 2)
+        
         for direction, state in light_states.items():
             if direction in positions:
                 x, y = positions[direction]
@@ -252,18 +297,23 @@ class TrafficLightController:
         # Xác định lý do sắp chuyển đèn
         switch_reason = None
         if vehicle_counts and not self.is_yellow:
-            current_count = vehicle_counts.get(self.current_green, 0)
-            max_other = max([v for k, v in vehicle_counts.items() if k != self.current_green], default=0)
+            current_pair = self.direction_pairs[self.current_green_pair]
+            current_count = sum(vehicle_counts.get(dir, 0) for dir in current_pair)
+            
+            # Tính số xe của cặp còn lại
+            other_pair_name = 'east_west' if self.current_green_pair == 'north_south' else 'north_south'
+            other_pair = self.direction_pairs[other_pair_name]
+            other_count = sum(vehicle_counts.get(dir, 0) for dir in other_pair)
             
             if elapsed >= self.max_green_time * 0.9:
                 switch_reason = f"Gần hết thời gian tối đa ({self.max_green_time}s)"
-            elif current_count < self.threshold:
-                switch_reason = f"Ít xe (<{self.threshold} xe)"
-            elif max_other > current_count + self.threshold:
-                switch_reason = f"Hướng khác đông hơn (+{max_other - current_count} xe)"
+            elif current_count < self.threshold * 2:
+                switch_reason = f"Ít xe (<{self.threshold * 2} xe)"
+            elif other_count > current_count + self.threshold * 2:
+                switch_reason = f"Cặp khác đông hơn (+{other_count - current_count} xe)"
         
         return {
-            'current_green': self.current_green,
+            'current_green': self.current_green_pair,  # Trả về cặp hướng
             'is_yellow': self.is_yellow,
             'elapsed_time': elapsed,
             'remaining_time': remaining,
