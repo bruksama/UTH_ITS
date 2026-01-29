@@ -134,6 +134,9 @@ class TrafficControlSystem:
         print("  [4/5] Đang khởi tạo Traffic Light Controller...")
         self.controller = TrafficLightController()
         
+        # Thiết lập kết nối giữa detector và counter để chỉ vẽ xe trong zones
+        self.detector.set_traffic_counter(self.counter)
+        
         print("  [5/5] Đang khởi tạo Dashboard và Logger...")
         self.dashboard = Dashboard(frame_shape=(self.height, self.width))
         
@@ -356,7 +359,36 @@ class TrafficControlSystem:
             # Lấy thống kê (cần cho logging)
             vehicle_stats = self.detector.get_statistics()
             traffic_stats = self.counter.get_statistics()
-            light_stats = self.controller.get_statistics(vehicle_counts)
+            
+            # Lấy light_stats với xử lý lỗi
+            try:
+                light_stats = self.controller.get_statistics(vehicle_counts)
+                # Đảm bảo light_stats có đủ các trường cần thiết
+                if not light_stats:
+                    light_stats = {
+                        'current_green': 'north_south',
+                        'is_yellow': False,
+                        'elapsed_time': 0,
+                        'remaining_time': 0,
+                        'progress_percent': 0,
+                        'switch_count': 0,
+                        'switch_reason': None,
+                        'min_time': self.controller.min_green_time,
+                        'max_time': self.controller.max_green_time
+                    }
+            except Exception as e:
+                print(f"Warning: Error getting light_stats: {e}")
+                light_stats = {
+                    'current_green': 'north_south',
+                    'is_yellow': False,
+                    'elapsed_time': 0,
+                    'remaining_time': 0,
+                    'progress_percent': 0,
+                    'switch_count': 0,
+                    'switch_reason': None,
+                    'min_time': self.controller.min_green_time,
+                    'max_time': self.controller.max_green_time
+                }
             
             # Vẽ dashboard nếu bật
             if self.show_dashboard:

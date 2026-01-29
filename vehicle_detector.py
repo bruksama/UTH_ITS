@@ -33,6 +33,9 @@ class VehicleDetector:
         self.total_detections = 0
         self.detection_history = []
         
+        # Traffic counter reference (sẽ được set từ main)
+        self.traffic_counter = None
+        
     def detect(self, frame):
         """
         Nhận diện xe trong frame
@@ -70,9 +73,38 @@ class VehicleDetector:
         
         return detections
     
+    def set_traffic_counter(self, traffic_counter):
+        """Set reference to traffic counter to check zones"""
+        self.traffic_counter = traffic_counter
+    
+    def is_vehicle_in_zones(self, bbox):
+        """
+        Kiểm tra xe có nằm trong bất kỳ zone nào không
+        
+        Args:
+            bbox: Bounding box [x1, y1, x2, y2]
+            
+        Returns:
+            True nếu xe nằm trong ít nhất một zone
+        """
+        if not self.traffic_counter:
+            return True  # Nếu không có counter, hiển thị tất cả
+        
+        x1, y1, x2, y2 = bbox
+        center_x = (x1 + x2) // 2
+        center_y = (y1 + y2) // 2
+        center_point = (center_x, center_y)
+        
+        # Kiểm tra điểm trung tâm có nằm trong zone nào không
+        for direction, zone_info in self.traffic_counter.zones.items():
+            if self.traffic_counter.point_in_zone(center_point, zone_info['points']):
+                return True
+        
+        return False
+    
     def draw_detections(self, frame, detections):
         """
-        Vẽ bounding box lên frame với style đẹp hơn
+        Vẽ bounding box lên frame - chỉ cho xe trong zones
         
         Args:
             frame: Frame video
@@ -85,6 +117,10 @@ class VehicleDetector:
             x1, y1, x2, y2 = det['bbox']
             conf = det['confidence']
             class_name = det.get('class_name', 'Vehicle')
+            
+            # Chỉ vẽ nếu xe nằm trong zones
+            if not self.is_vehicle_in_zones([x1, y1, x2, y2]):
+                continue
             
             # Màu sắc theo loại xe
             colors_map = {
